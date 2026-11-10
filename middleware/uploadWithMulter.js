@@ -63,7 +63,7 @@ const documentStorage = multer.diskStorage({
 // INCREASE FILE SIZE LIMIT TO 500MB
 const uploadDocumentMiddleware = multer({ 
   storage: documentStorage,
-  limits: { fileSize: 500 * 1024 * 1024 } // 500MB limit for documents
+  limits: { fileSize: 10 * 1024 * 1024 * 1024 } // 10GB limit for documents
 });
 
 // Image upload with increased limit and all image types

@@ -21,6 +21,8 @@ const serviceRoutes = require("../routes/service.routes");
 const blogRoutes = require("../routes/blog.routes");
 const statsRoutes = require("../routes/stats.routes");
 const categoryRoutes = require("../routes/category.routes");
+const videoRoutes = require("../routes/video.routes");
+const moduleExamRoutes = require("../routes/moduleExam.routes");
 
 
 const router = require("express").Router();
@@ -39,6 +41,8 @@ router.use("/exams", examRoutes);
 router.use("/mocktests", mockTestRoutes);
 
 router.use("/isoexams", isoExamRoutes); 
+
+router.use("/module-exam", moduleExamRoutes)
 
 router.use("/settings", paymentMethodRoutes);
 
@@ -69,6 +73,8 @@ router.use("/blogs", blogRoutes);
 router.use("/stats", statsRoutes);
 
 router.use("/categories", categoryRoutes);
+
+router.use("/video", videoRoutes);
 
 
 
