@@ -42,7 +42,8 @@ const Student = sequelize.define(
     // Contact Information
     phoneNo: {
       type: dt.STRING,
-      allowNull: true,
+      allowNull: false,
+      unique: true,
     },
     alternativePhoneNo: {
       type: dt.STRING,
@@ -50,8 +51,7 @@ const Student = sequelize.define(
     },
     email: {
       type: dt.STRING,
-      allowNull: false,
-      unique: true,
+      allowNull: true,
     },
 
     // NID Information
@@ -222,6 +222,15 @@ const Student = sequelize.define(
     },
     notes: {
       type: dt.TEXT,
+      allowNull: true,
+    },
+
+    class: {
+      type: dt.STRING,
+      allowNull: true,
+    },
+    batch: {
+      type: dt.STRING,
       allowNull: true,
     },
   },

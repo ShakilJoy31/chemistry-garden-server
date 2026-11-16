@@ -5,12 +5,41 @@ const { generateAccessToken, generateRefreshToken } = require("../../middleware/
 const Student = require("../../models/students/student.model");
 const RegisteredStudent = require("../../models/students/registered-student.model");
 
+
+// ─────────────── Helpers & constants used by createStudent ───────────────
+
+/** Trim + coerce a value to a string; return null if empty. */
+const str = (v) => {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  return s === "" ? null : s;
+};
+
+// Must match the Sequelize ENUMs on the Student model exactly.
+const GENDERS = ["male", "female", "other"];
+const EDUCATION_LEVELS = [
+  "ssc",
+  "hsc",
+  "diploma",
+  "bachelor",
+  "masters",
+  "other",
+];
+const STUDENT_STATUSES = ["active", "inactive", "suspended", "completed"];
+
 // Helper function to generate student ID
-const generateStudentId = async () => {
+const generateStudentId = async (offset = 0) => {
   const year = new Date().getFullYear();
-  const count = await Student.count();
-  const sequence = String(count + 1).padStart(5, '0');
-  return `FIT-${year}-${sequence}`;
+  const prefix = `FIT-${year}-`;
+
+  const last = await Student.findOne({
+    where: { studentId: { [Op.like]: `${prefix}%` } },
+    order: [["studentId", "DESC"]],
+    attributes: ["studentId"],
+  });
+
+  const lastSeq = last ? parseInt(last.studentId.slice(prefix.length), 10) || 0 : 0;
+  return `${prefix}${String(lastSeq + 1 + offset).padStart(5, "0")}`;
 };
 
 // Helper function to transform student response
@@ -57,20 +86,20 @@ const createStudent = async (req, res, next) => {
       motherName,
       dateOfBirth,
       gender,
-      
+
       // Contact Information
       phoneNo,
       alternativePhoneNo,
       email,
-      
+
       // NID Information
       nidNo,
       nidFrontImage,
       nidBackImage,
-      
+
       // Profile Image
       profileImage,
-      
+
       // Address Information
       presentAddress,
       permanentAddress,
@@ -78,50 +107,100 @@ const createStudent = async (req, res, next) => {
       upazila,
       postOffice,
       postalCode,
-      
+
       // Educational Information
       educationLevel,
       institutionName,
       passingYear,
-      
+      class: studentClass, // aliased: `class` is reserved in JS declarations
+      batch,
+
       // Professional Information
       occupation,
       companyName,
       designation,
-      
-      // Course Related Information
+
+      // Staff-only fields (ignored for public self-registration)
       enrolledCourseId,
       enrollmentDate,
       totalFee,
       paidAmount,
-      
-      // System Fields
-      status = "active",
+      status,
       notes,
-      
-      // Password (default to phone number if not provided)
+
+      // Account
       password,
     } = req.body;
 
-    // Validate required fields
-    if (!fullName || !phoneNo || !email || !presentAddress) {
+    // A logged-in admin/staff member is registering the student.
+    // Public self-registration has no req.user.
+    const isStaff = Boolean(req.user);
+
+    /* ───────── 1. Required fields (model: allowNull: false) ─────────
+       fullName, phoneNo, password  (gender falls back to "male")        */
+    const name = str(fullName);
+    const phone = str(phoneNo);
+
+    if (!name || !phone || !password) {
       return res.status(400).json({
         success: false,
-        message: "Full name, phone number, email, present and address are required!",
+        message: "Full name, phone number and password are required!",
       });
     }
 
-    // Check if email already exists
-    const emailExists = await Student.findOne({ where: { email } });
-    if (emailExists) {
-      return res.status(409).json({
+    /* ───────── 2. Format checks ───────── */
+    if (!/^01\d{9}$/.test(phone)) {
+      return res.status(400).json({
         success: false,
-        message: "This email is already registered!",
+        message: "Phone number must be 11 digits starting with 01.",
       });
     }
 
-    // Check if phone already exists
-    const phoneExists = await Student.findOne({ where: { phoneNo } });
+    if (String(password).length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 6 characters.",
+      });
+    }
+
+    // Email is optional in the model; validate and normalise only if given.
+    const normalizedEmail = str(email) ? str(email).toLowerCase() : null;
+    if (normalizedEmail && !/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide a valid email address.",
+      });
+    }
+
+    const studentGender = str(gender) || "male";
+    if (!GENDERS.includes(studentGender)) {
+      return res.status(400).json({
+        success: false,
+        message: `Gender must be one of: ${GENDERS.join(", ")}.`,
+      });
+    }
+
+    const level = str(educationLevel);
+    if (level && !EDUCATION_LEVELS.includes(level)) {
+      return res.status(400).json({
+        success: false,
+        message: `Education level must be one of: ${EDUCATION_LEVELS.join(", ")}.`,
+      });
+    }
+
+    let year = null;
+    if (str(passingYear)) {
+      year = parseInt(passingYear, 10);
+      if (Number.isNaN(year)) {
+        return res.status(400).json({
+          success: false,
+          message: "Passing year must be a number.",
+        });
+      }
+    }
+
+    /* ───────── 3. Uniqueness checks ───────── */
+    const phoneExists = await Student.findOne({ where: { phoneNo: phone } });
     if (phoneExists) {
       return res.status(409).json({
         success: false,
@@ -129,9 +208,19 @@ const createStudent = async (req, res, next) => {
       });
     }
 
-    // Check if NID already exists (if provided)
-    if (nidNo) {
-      const nidExists = await Student.findOne({ where: { nidNo } });
+    if (normalizedEmail) {
+      const emailExists = await Student.findOne({ where: { email: normalizedEmail } });
+      if (emailExists) {
+        return res.status(409).json({
+          success: false,
+          message: "This email is already registered!",
+        });
+      }
+    }
+
+    const nid = str(nidNo);
+    if (nid) {
+      const nidExists = await Student.findOne({ where: { nidNo: nid } });
       if (nidExists) {
         return res.status(409).json({
           success: false,
@@ -140,65 +229,79 @@ const createStudent = async (req, res, next) => {
       }
     }
 
-    // Calculate due amount
-    const dueAmount = (parseFloat(totalFee) || 0) - (parseFloat(paidAmount) || 0);
-    const paymentStatus = "pending";
+    /* ───────── 4. Staff-only values ─────────
+       Public sign-ups can't set fees, status, course or notes. */
+    const fee = isStaff ? parseFloat(totalFee) || 0 : 0;
+    const paid = isStaff ? parseFloat(paidAmount) || 0 : 0;
+    const dueAmount = Math.max(fee - paid, 0);
+    const paymentStatus = paid <= 0 ? "pending" : paid >= fee ? "paid" : "partial";
+    const studentStatus =
+      isStaff && STUDENT_STATUSES.includes(status) ? status : "active";
 
-    // Generate student ID
+    /* ───────── 5. Create ───────── */
     const studentId = await generateStudentId();
+    const present = str(presentAddress);
 
-    // Create new student
     const newStudent = await Student.create({
-      studentId, // Generated student ID
-      fullName,
-      fatherName: fatherName || null,
-      motherName: motherName || null,
-      dateOfBirth: dateOfBirth || null,
-      gender: gender || "male",
-      
-      phoneNo,
-      alternativePhoneNo: alternativePhoneNo || null,
-      email,
-      
-      nidNo: nidNo || null,
-      nidFrontImage: nidFrontImage || null,
-      nidBackImage: nidBackImage || null,
-      
-      profileImage: profileImage || null,
-      
-      presentAddress,
-      permanentAddress: permanentAddress || presentAddress,
-      district,
-      upazila: upazila || null,
-      postOffice: postOffice || null,
-      postalCode: postalCode || null,
-      
-      educationLevel: educationLevel || null,
-      institutionName: institutionName || null,
-      passingYear: passingYear ? parseInt(passingYear) : null,
-      
-      occupation: occupation || null,
-      companyName: companyName || null,
-      designation: designation || null,
-      
-      enrolledCourseId: enrolledCourseId || null,
-      enrollmentDate: enrollmentDate || new Date(),
-      totalFee: totalFee || 0,
-      paidAmount: paidAmount || 0,
-      dueAmount: dueAmount,
-      paymentStatus: paymentStatus,
-      lastPaymentDate: paidAmount > 0 ? new Date() : null,
-      
-      status: status,
-      notes: notes || null,
-      password: password || phoneNo, // Default password to phone number
+      studentId,
+
+      // Personal
+      fullName: name,
+      fatherName: str(fatherName),
+      motherName: str(motherName),
+      dateOfBirth: str(dateOfBirth),
+      gender: studentGender,
+
+      // Contact
+      phoneNo: phone,
+      alternativePhoneNo: str(alternativePhoneNo),
+      email: normalizedEmail,
+
+      // NID & profile
+      nidNo: nid,
+      nidFrontImage: str(nidFrontImage),
+      nidBackImage: str(nidBackImage),
+      profileImage: str(profileImage),
+
+      // Address (all optional)
+      presentAddress: present,
+      permanentAddress: str(permanentAddress) || present,
+      district: str(district),
+      upazila: str(upazila),
+      postOffice: str(postOffice),
+      postalCode: str(postalCode),
+
+      // Education
+      educationLevel: level,
+      institutionName: str(institutionName),
+      passingYear: year,
+      class: str(studentClass),
+      batch: str(batch),
+
+      // Professional
+      occupation: str(occupation),
+      companyName: str(companyName),
+      designation: str(designation),
+
+      // Course & payment
+      enrolledCourseId: isStaff ? enrolledCourseId || null : null,
+      enrollmentDate: (isStaff && enrollmentDate) || new Date(),
+      totalFee: fee,
+      paidAmount: paid,
+      dueAmount,
+      paymentStatus,
+      lastPaymentDate: paid > 0 ? new Date() : null,
+
+      // System
+      status: studentStatus,
+      notes: isStaff ? str(notes) : null,
+      password, // required — no more fallback to the phone number
       registeredBy: req.user?.id || null,
     });
 
-    // Transform response
+    /* ───────── 6. Response ───────── */
     const studentData = transformStudentResponse(newStudent);
 
-    // Generate tokens for student
     const userForToken = {
       id: newStudent.id,
       email: newStudent.email,
@@ -208,7 +311,7 @@ const createStudent = async (req, res, next) => {
       fullName: newStudent.fullName,
       studentId: newStudent.studentId,
     };
-    
+
     const accessToken = generateAccessToken(userForToken);
     const refreshToken = generateRefreshToken(userForToken);
 
@@ -217,14 +320,28 @@ const createStudent = async (req, res, next) => {
       message: "Student registered successfully!",
       data: {
         ...studentData,
-        tokens: {
-          accessToken,
-          refreshToken,
-        },
+        tokens: { accessToken, refreshToken },
       },
     });
   } catch (error) {
     console.error("Error creating student:", error);
+
+    // Two requests racing past the checks above hit the DB unique indexes.
+    if (error.name === "SequelizeUniqueConstraintError") {
+      const field = error.errors?.[0]?.path || "value";
+      return res.status(409).json({
+        success: false,
+        message: `This ${field} is already registered!`,
+      });
+    }
+
+    if (error.name === "SequelizeValidationError") {
+      return res.status(400).json({
+        success: false,
+        message: error.errors?.[0]?.message || "Invalid data.",
+      });
+    }
+
     next(error);
   }
 };
@@ -240,6 +357,8 @@ const getAllStudents = async (req, res, next) => {
       district = "",
       courseId = "",
       paymentStatus = "",
+      class: classFilter = "",   // ← NEW (aliased)
+      batch = "",                 // ← NEW
     } = req.query;
 
     const pageNumber = parseInt(page, 10);
@@ -256,6 +375,8 @@ const getAllStudents = async (req, res, next) => {
         { email: { [Op.like]: `%${search}%` } },
         { phoneNo: { [Op.like]: `%${search}%` } },
         { nidNo: { [Op.like]: `%${search}%` } },
+        { class: { [Op.like]: `%${search}%` } },   // ← NEW (search across class)
+        { batch: { [Op.like]: `%${search}%` } },   // ← NEW (search across batch)
       ];
     }
 
@@ -277,6 +398,16 @@ const getAllStudents = async (req, res, next) => {
     // Add payment status filter
     if (paymentStatus) {
       whereClause.paymentStatus = paymentStatus;
+    }
+
+    // Add class filter (NEW)
+    if (classFilter) {
+      whereClause.class = { [Op.like]: `%${classFilter}%` };
+    }
+
+    // Add batch filter (NEW)
+    if (batch) {
+      whereClause.batch = { [Op.like]: `%${batch}%` };
     }
 
     const { count, rows: students } = await Student.findAndCountAll({
@@ -413,9 +544,6 @@ const getStudentByStudentId = async (req, res, next) => {
 };
 
 
-
-
-
 //! Update student
 const updateStudent = async (req, res, next) => {
   try {
@@ -430,6 +558,15 @@ const updateStudent = async (req, res, next) => {
         message: "Student not found!",
       });
     }
+
+    // ─── NEW: normalize class & batch as strings (or null if empty) ───
+    if (updateData.class !== undefined) {
+      updateData.class = updateData.class ? String(updateData.class).trim() : null;
+    }
+    if (updateData.batch !== undefined) {
+      updateData.batch = updateData.batch ? String(updateData.batch).trim() : null;
+    }
+    // ──────────────────────────────────────────────────────────────────
  
     // --- Password change: verify current password before allowing it ---
     if (updateData.password) {
@@ -449,7 +586,6 @@ const updateStudent = async (req, res, next) => {
         });
       }
  
-      // Hash the new password before it gets saved below
       updateData.password = updateData.password;
     }
  

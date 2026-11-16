@@ -23,6 +23,7 @@ const statsRoutes = require("../routes/stats.routes");
 const categoryRoutes = require("../routes/category.routes");
 const videoRoutes = require("../routes/video.routes");
 const moduleExamRoutes = require("../routes/moduleExam.routes");
+const resultRoutes = require("../routes/result.route");
 
 
 const router = require("express").Router();
@@ -35,6 +36,8 @@ router.use("/server-status", serverStatusRoutes);
 router.use("/certificate", certificateRoutes);
 
 router.use("/students", studentRoutes);
+
+router.use("/results", resultRoutes);
 
 router.use("/exams", examRoutes);
 
