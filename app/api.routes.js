@@ -24,6 +24,7 @@ const categoryRoutes = require("../routes/category.routes");
 const videoRoutes = require("../routes/video.routes");
 const moduleExamRoutes = require("../routes/moduleExam.routes");
 const resultRoutes = require("../routes/result.route");
+const academicRoutes = require("../routes/academic.routes");
 
 
 const router = require("express").Router();
@@ -78,6 +79,8 @@ router.use("/stats", statsRoutes);
 router.use("/categories", categoryRoutes);
 
 router.use("/video", videoRoutes);
+
+router.use("/academic-chemistry-gander", academicRoutes);
 
 
 

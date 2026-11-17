@@ -10,10 +10,10 @@ const allowedOrigins = [
 
 
 
-  "https://fitinfotech.net",
-  "http://fitinfotech.net",
-  "https://www.fitinfotech.net",
-  "http://www.fitinfotech.net",
+  "https://chemistry-garden.newscell.org",
+  "http://chemistry-garden.newscell.org",
+  "https://www.chemistry-garden.newscell.org",
+  "http://www.chemistry-garden.newscell.org",
 ];
 
 module.exports = allowedOrigins;
