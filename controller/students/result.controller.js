@@ -4,6 +4,7 @@ const sequelize = require("../../database/connection");
 const Student = require("../../models/students/student.model");
 const Result = require("../../models/students/result.model");
 const { sendResultSms, buildResultSmsMessage } = require("../../utils/helper/resultSmsHelper");
+const ExamName = require("../../models/academic/examName.model");
 
 // Utility: recalc total whenever we save
 const calcTotal = (cq, mcq) => {
@@ -77,18 +78,13 @@ const getStudentsForResult = async (req, res, next) => {
 const saveResults = async (req, res, next) => {
   const t = await sequelize.transaction();
   try {
-    const {
-      class: classVal,
-      batch,
-      examName = null,
-      results = [],
-    } = req.body || {};
+    const { class: classVal, batch, examId, results = [] } = req.body || {};
 
-    if (!classVal || !batch) {
+    if (!classVal || !batch || !examId) {
       await t.rollback();
       return res.status(400).json({
         success: false,
-        message: "Both 'class' and 'batch' are required.",
+        message: "'class', 'batch' and 'examId' are required.",
       });
     }
     if (!Array.isArray(results) || results.length === 0) {
@@ -99,9 +95,33 @@ const saveResults = async (req, res, next) => {
       });
     }
 
+    // Get the exam from the database (full mark comes from here, not the browser)
+    const exam = await ExamName.findByPk(examId, { transaction: t });
+    if (!exam) {
+      await t.rollback();
+      return res
+        .status(404)
+        .json({ success: false, message: "Exam not found." });
+    }
+    const examName = exam.name;
+    const totalMark = parseFloat(exam.totalMark);
+
+    // Marks must fit inside the exam's total
+    for (const row of results) {
+      const cq = parseFloat(row.cq) || 0;
+      const mcq = parseFloat(row.mcq) || 0;
+      if (cq < 0 || mcq < 0 || cq + mcq > totalMark) {
+        await t.rollback();
+        return res.status(400).json({
+          success: false,
+          message: `Marks for student ${row.studentId} are above the exam total (${totalMark}).`,
+        });
+      }
+    }
+
     const publishedBy = req.user?.id || null;
 
-    // 1) Confirm students belong to this class+batch (safety check)
+    // 1) Confirm students belong to this class + batch
     const ids = results.map((r) => r.studentId).filter(Boolean);
     const allowed = await Student.findAll({
       where: { id: { [Op.in]: ids }, class: classVal, batch },
@@ -120,12 +140,13 @@ const saveResults = async (req, res, next) => {
 
     const allowedMap = new Map(allowed.map((s) => [s.id, s]));
 
-    // 2) Pre-fetch existing rows to decide who to SMS
+    // 2) Existing rows — now for THIS EXAM only
     const existingRows = await Result.findAll({
       where: {
         studentId: { [Op.in]: ids },
         class: classVal,
         batch: batch,
+        examName: examName,
       },
       transaction: t,
     });
@@ -133,9 +154,9 @@ const saveResults = async (req, res, next) => {
       existingRows.map((r) => [r.studentId, r])
     );
 
-    // 3) Upsert each row + collect SMS candidates
+    // 3) Save each row and remember who needs an SMS
     const saved = [];
-    const smsCandidates = []; // { student, cq, mcq, total }
+    const smsCandidates = [];
 
     for (const row of results) {
       const s = allowedMap.get(row.studentId);
@@ -145,43 +166,32 @@ const saveResults = async (req, res, next) => {
 
       const existing = existingByStudent.get(s.id);
 
-      // Build payload without studentCode/examName if those columns don't exist
       const basePayload = {
         studentId: s.id,
         studentName: s.fullName,
         class: classVal,
         batch,
+        examName,
         cq,
         mcq,
         total,
         publishedBy,
       };
       if (HAS_STUDENT_CODE) basePayload.studentCode = s.studentId;
-      if (
-        Object.prototype.hasOwnProperty.call(
-          Result.rawAttributes || {},
-          "examName"
-        )
-      ) {
-        basePayload.examName = examName || null;
-      }
 
       if (existing) {
         const sameMarks =
           parseFloat(existing.cq) === cq && parseFloat(existing.mcq) === mcq;
 
         if (sameMarks) {
-          // No change → skip update AND skip SMS
-          saved.push(existing);
+          saved.push(existing); // unchanged: no update, no SMS
           continue;
         }
 
-        // Changed → update + queue SMS
         await existing.update(basePayload, { transaction: t });
         saved.push(existing);
         smsCandidates.push({ student: s, cq, mcq, total });
       } else {
-        // New row → create + queue SMS
         const created = await Result.create(basePayload, { transaction: t });
         saved.push(created);
         smsCandidates.push({ student: s, cq, mcq, total });
@@ -190,7 +200,7 @@ const saveResults = async (req, res, next) => {
 
     await t.commit();
 
-    // 4) Send SMS AFTER commit (so failures don't roll back DB)
+    // 4) SMS after commit
     let smsSent = 0;
     let smsFailed = 0;
     const smsErrors = [];
@@ -200,11 +210,11 @@ const saveResults = async (req, res, next) => {
         smsCandidates.map(async ({ student, cq, mcq, total }) => {
           const message = buildResultSmsMessage({
             studentName: student.fullName,
-            classVal,
-            batch,
+            examName,
             cq,
             mcq,
             total,
+            totalMark,
           });
           const r = await sendResultSms({
             phone: student.phoneNo,
@@ -232,7 +242,7 @@ const saveResults = async (req, res, next) => {
     return res.status(200).json({
       success: true,
       message:
-        `Saved ${saved.length} result(s). ` +
+        `Saved ${saved.length} result(s) for ${examName}. ` +
         `SMS sent to ${smsSent}, failed ${smsFailed}, skipped ${smsSkipped}.`,
       data: saved,
       smsSummary: {
@@ -437,7 +447,7 @@ const getClassBatchSummary = async (req, res, next) => {
  */
 const getResultsByClassBatch = async (req, res, next) => {
   try {
-    const { class: classFilter = "", batch = "" } = req.query;
+    const { class: classFilter = "", batch = "", examName = "" } = req.query;
 
     if (!classFilter || !batch) {
       return res.status(400).json({
@@ -446,19 +456,17 @@ const getResultsByClassBatch = async (req, res, next) => {
       });
     }
 
-    // Fetch students
     const students = await Student.findAll({
       where: { class: classFilter, batch },
       attributes: ["id", "studentId", "fullName", "class", "batch"],
       order: [["fullName", "ASC"]],
     });
 
-    // Fetch saved results for this group
-    const results = await Result.findAll({
-      where: { class: classFilter, batch },
-      raw: true,
-    });
+    // Only this exam's results
+    const resultWhere = { class: classFilter, batch };
+    if (examName) resultWhere.examName = examName;
 
+    const results = await Result.findAll({ where: resultWhere, raw: true });
     const resultMap = new Map(results.map((r) => [r.studentId, r]));
 
     const data = students.map((s) => {

@@ -118,11 +118,20 @@ const sendResultSms = async ({ phone, message, variables = {} }) => {
  * Build the SMS body for a result entry.
  * Customize the text here — this is the only place you edit wording.
  */
-const buildResultSmsMessage = ({ studentName, cq, mcq, total }) => {
+const buildResultSmsMessage = ({
+  studentName,
+  examName,
+  cq,
+  mcq,
+  total,
+  totalMark,
+}) => {
   return (
     `Dear ${studentName},\n` +
-    `Exam - 1\n` +
-    `CQ: ${cq}/50\nMCQ: ${mcq}/25\nTotal: ${total}/10`
+    `${examName}\n` +
+    `CQ: ${cq}\n` +
+    `MCQ: ${mcq}\n` +
+    `Total: ${total}/${totalMark}`
   );
 };
 

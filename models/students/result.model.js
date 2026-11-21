@@ -10,6 +10,7 @@ const Result = sequelize.define(
       primaryKey: true,
       autoIncrement: true,
     },
+    examName: { type: DataTypes.STRING, allowNull: true },
     studentId: {
       type: DataTypes.INTEGER,
       allowNull: false,

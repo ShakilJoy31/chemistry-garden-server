@@ -25,6 +25,7 @@ const videoRoutes = require("../routes/video.routes");
 const moduleExamRoutes = require("../routes/moduleExam.routes");
 const resultRoutes = require("../routes/result.route");
 const academicRoutes = require("../routes/academic.routes");
+const academicPaymentRoutes = require("../routes/academicPaymentRoutes.js");
 
 
 const router = require("express").Router();
@@ -82,6 +83,7 @@ router.use("/video", videoRoutes);
 
 router.use("/academic-chemistry-gander", academicRoutes);
 
+router.use("/academic-chemistry-gander/payments", academicPaymentRoutes);
 
 
 
