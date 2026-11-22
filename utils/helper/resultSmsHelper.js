@@ -1,10 +1,11 @@
 // utils/sms/resultSmsHelper.js
 const axios = require("axios");
 
-const SMS_API_KEY = process.env.SMS_API_KEY || "C40010236a00bf0b2478e3.57108417";
-const SMS_SENDER_ID = process.env.SMS_SENDER_ID || "Ring Tel";
+// Updated to BulkSMSBD credentials and URL
+const SMS_API_KEY = process.env.SMS_API_KEY || "wuJuWj95YfnbuMU9WQhU";
+const SMS_SENDER_ID = process.env.SMS_SENDER_ID || "8809617624586";
 const SMS_BASE_URL =
-  process.env.SMS_BASE_URL || "https://msg.mram.com.bd/smsapi";
+  process.env.SMS_API_URL || "http://bulksmsbd.net/api/smsapi";
 const SMS_TYPE = "text"; // plain text
 
 /**
@@ -56,25 +57,24 @@ const sendResultSms = async ({ phone, message, variables = {} }) => {
     // Remove any leftover unfilled placeholders
     finalMessage = finalMessage.replace(/\{[^}]+\}/g, "");
 
-    // Build URL
+    // Build URL for BulkSMSBD (Non-Masking)
     const url =
       `${SMS_BASE_URL}?api_key=${encodeURIComponent(SMS_API_KEY)}` +
       `&type=${encodeURIComponent(SMS_TYPE)}` +
-      `&contacts=${encodeURIComponent(normalizedPhone)}` +
+      `&number=${encodeURIComponent(normalizedPhone)}` +
       `&senderid=${encodeURIComponent(SMS_SENDER_ID)}` +
-      `&msg=${encodeURIComponent(finalMessage)}`;
+      `&message=${encodeURIComponent(finalMessage)}`;
 
     const response = await axios.post(url, null, { timeout: 10000 });
 
-    // Parse gateway response (mram.com.bd returns string like "SMS SUBMITTED: 100")
+    // Parse BulkSMSBD gateway response
     const raw = response.data;
     const rawStr =
       typeof raw === "string" ? raw : JSON.stringify(raw || "");
-    const ok =
-      rawStr.includes("SMS SUBMITTED") ||
-      rawStr.includes("SUCCESS") ||
-      rawStr.includes("SENT") ||
-      rawStr.includes("100");
+      
+    // BulkSMSBD returns a JSON object with response_code = 202 on success
+    const responseCode = response.data?.response_code;
+    const ok = Number(responseCode) === 202 || rawStr.includes("202");
 
     return {
       success: ok,
@@ -131,7 +131,8 @@ const buildResultSmsMessage = ({
     `${examName}\n` +
     `CQ: ${cq}\n` +
     `MCQ: ${mcq}\n` +
-    `Total: ${total}/${totalMark}`
+    `Total: ${total}/${totalMark}` + 
+    `- Chemistry Garden (Sawgat Sir)`
   );
 };
 

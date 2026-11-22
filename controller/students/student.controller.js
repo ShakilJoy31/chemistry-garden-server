@@ -30,7 +30,7 @@ const STUDENT_STATUSES = ["active", "inactive", "suspended", "completed"];
 // Helper function to generate student ID
 const generateStudentId = async (offset = 0) => {
   const year = new Date().getFullYear();
-  const prefix = `FIT-${year}-`;
+  const prefix = `ChGr-${year}-`;
 
   const last = await Student.findOne({
     where: { studentId: { [Op.like]: `${prefix}%` } },
