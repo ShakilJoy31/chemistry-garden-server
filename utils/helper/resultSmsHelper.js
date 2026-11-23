@@ -126,15 +126,47 @@ const buildResultSmsMessage = ({
   total,
   totalMark,
 }) => {
-  return (
-    `Dear ${studentName},\n` +
+  // Build the display name: take the first word; if it's shorter than 3
+  // characters (e.g. "K M Abdullah"), include words until we have a
+  // name of at least 3 characters, then stop.
+  const words = String(studentName || "").trim().split(/\s+/).filter(Boolean);
+  let displayName = words[0] || "";
+  if (displayName.length < 3) {
+    let i = 1;
+    while (i < words.length && displayName.length < 3) {
+      displayName += " " + words[i];
+      i++;
+    }
+  }
+
+  // Compact multi-line format, keeps each message well under 70 chars.
+  // Example (~59 chars):
+  // Dear Shakidul,
+  // M-1
+  // CQ:33
+  // MCQ:33
+  // Total:66/100-CG(Sawgat Sir)
+  console.log( `Dear ${displayName},\n` +
     `${examName}\n` +
-    `CQ: ${cq}\n` +
-    `MCQ: ${mcq}\n` +
-    `Total: ${total}/${totalMark}` + 
-    `- Chemistry Garden (Sawgat Sir)`
+    `CQ:${cq}\n` +
+    `MCQ:${mcq}\n` +
+    `Total:${total}/${totalMark}\n-CG(Sawgat Sir)`)
+  return (
+    `Dear ${displayName},\n` +
+    `${examName}\n` +
+    `CQ:${cq}\n` +
+    `MCQ:${mcq}\n` +
+    `Total:${total}/${totalMark}\n-CG(Sawgat Sir)`
   );
 };
+
+module.exports = {
+  sendResultSms,
+  buildResultSmsMessage,
+};
+
+
+
 
 module.exports = {
   sendResultSms,
