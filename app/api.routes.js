@@ -114,32 +114,46 @@ router.post("/file/upload", uploadWithMulter.single("image"), (req, res) => {
 });
 
 
-
 //! Document upload route
-router.post("/document/upload", uploadWithMulter.uploadDocument.single("document"), (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ 
+router.post("/document/upload", (req, res) => {
+  // Custom middleware to handle multer errors gracefully
+  uploadWithMulter.uploadDocument.single("document")(req, res, function (err) {
+    if (err) {
+      console.error("Multer error:", err);
+      return res.status(500).json({
         success: false,
-        message: "No file uploaded" 
+        message: err.message || "Error uploading file",
       });
     }
 
-    res.json({ 
-      success: true,
-      data: {
-        filename: req.file.filename,
-        path: `${process.env.BASE_URL}/uploads/documents/${req.file.filename}`
+    try {
+      if (!req.file) {
+        return res.status(400).json({ 
+          success: false,
+          message: "No file uploaded" 
+        });
       }
-    });
-  } catch (error) {
-    console.error("Upload error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Upload failed"
-    });
-  }
+
+      // Successfully saved to disk by Multer
+      res.json({ 
+        success: true,
+        data: {
+          filename: req.file.filename,
+          path: `${process.env.BASE_URL}/uploads/documents/${req.file.filename}`
+        }
+      });
+    } catch (error) {
+      console.error("Upload error:", error);
+      res.status(500).json({
+        success: false,
+        message: error.message || "Upload failed"
+      });
+    }
+  });
 });
+
+
+
 
 module.exports = router;
 
