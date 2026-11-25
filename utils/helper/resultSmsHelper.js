@@ -160,9 +160,77 @@ const buildResultSmsMessage = ({
   );
 };
 
-module.exports = {
-  sendResultSms,
-  buildResultSmsMessage,
+
+
+/**
+ * Build the SMS body for a student notice.
+ * Template uses {studentName} and {description} placeholders.
+ * Default:
+ *   Notice {studentName},
+ *   {description} (Check website)
+ *   - CG(Sawgat Sir)
+ */
+const buildNoticeSmsMessage = ({ studentName, description, template }) => {
+  // first word rule, same as result SMS
+  const words = String(studentName || "").trim().split(/\s+/).filter(Boolean);
+  let displayName = words[0] || "Student";
+  if (displayName.length < 3) {
+    let i = 1;
+    while (i < words.length && displayName.length < 3) {
+      displayName += " " + words[i];
+      i++;
+    }
+  }
+
+  const tpl =
+    template ||
+    "Notice {studentName},\n{description} (Check website)\n-CG(Sawgat Sir)";
+
+  return tpl
+    .replace(/\{studentName\}/g, displayName)
+    .replace(/\{description\}/g, String(description || "").trim());
+};
+
+
+
+/**
+ * Build the SMS body for a student login credential message.
+ * Template supports:
+ *   {studentName}, {phone}, {password}, {loginUrl}
+ * Default:
+ *   Dear {studentName},
+ *   Your login credentials:
+ *   Phone: {phone}
+ *   Password: {password}
+ *   Login: {loginUrl}
+ *   - CG(Sawgat Sir)
+ */
+const buildLoginCredentialSmsMessage = ({
+  studentName,
+  phone,
+  password,
+  loginUrl,
+  template,
+}) => {
+  const words = String(studentName || "").trim().split(/\s+/).filter(Boolean);
+  let displayName = words[0] || "Student";
+  if (displayName.length < 3) {
+    let i = 1;
+    while (i < words.length && displayName.length < 3) {
+      displayName += " " + words[i];
+      i++;
+    }
+  }
+
+  const tpl =
+    template ||
+    "Dear {studentName},\nYour login credentials:\nPhone: {phone}\nPassword: {password}\nLogin: {loginUrl}\n-CG(Sawgat Sir)";
+
+  return tpl
+    .replace(/\{studentName\}/g, displayName)
+    .replace(/\{phone\}/g, String(phone || "").trim())
+    .replace(/\{password\}/g, String(password || "").trim())
+    .replace(/\{loginUrl\}/g, String(loginUrl || "").trim());
 };
 
 
@@ -171,4 +239,6 @@ module.exports = {
 module.exports = {
   sendResultSms,
   buildResultSmsMessage,
+  buildNoticeSmsMessage,
+  buildLoginCredentialSmsMessage
 };

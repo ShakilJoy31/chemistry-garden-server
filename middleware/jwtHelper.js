@@ -10,7 +10,7 @@ const generateAccessToken = (user) => {
       status: user.status
     },
     process.env.JWT_ACCESS_TOKEN,
-    { expiresIn: process.env.JWT_ACCESS_EXPIRATION || "1d" }
+    { expiresIn: process.env.JWT_ACCESS_EXPIRATION || "365d" }
   );
 };
 
@@ -19,7 +19,7 @@ const generateRefreshToken = (user) => {
   return jwt.sign(
     { id: user.id },
     process.env.JWT_REFRESH_TOKEN,
-    { expiresIn: process.env.JWT_REFRESH_EXPIRATION || "7d" }
+    { expiresIn: process.env.JWT_REFRESH_EXPIRATION || "365d" }
   );
 };
 

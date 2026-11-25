@@ -1,6 +1,6 @@
 // routes/authentication/studentRoutes.js
 const express = require("express");
-const { createStudent, studentLogin, getStudentByStudentId, updateStudent, deleteStudent, updateStudentStatus, changeStudentPassword, updateAttendance, issueCertificate, assignCourseToStudent, getAllStudents } = require("../controller/students/student.controller");
+const { createStudent, studentLogin, getStudentByStudentId, updateStudent, deleteStudent, updateStudentStatus, changeStudentPassword, updateAttendance, issueCertificate, assignCourseToStudent, getAllStudents, requestNewDeviceLogin, getDeviceLoginRequests, approveDeviceLoginRequest, rejectDeviceLoginRequest } = require("../controller/students/student.controller");
 const verifyJWT = require("../middleware/verifyJWT");
 const { registerStudent, getAllRegisteredStudents, getRegistrationStats, getRegisteredStudentById, approveRegisteredStudent, rejectRegisteredStudent, deleteRegisteredStudent, getApprovedStudentById, updateRegisteredStudent } = require("../controller/students/registered-student.controller");
 const { getAllCourses, getCourseStats, getCourseById, createCourse, updateCourse, deleteCourse } = require("../controller/course/course.controller");
@@ -29,6 +29,11 @@ router.put("/issue-certificate/:id", verifyJWT, issueCertificate);
 router.get("/get-student-stats", verifyJWT, getRegistrationStats);
 router.post("/:studentId/assign-course", assignCourseToStudent);
 router.post("/student-login", studentLogin);
+router.post("/request-new-device-login", requestNewDeviceLogin);
+
+router.get("/device-login-requests", verifyJWT, getDeviceLoginRequests);
+router.put("/approve-device-login/:id", verifyJWT, approveDeviceLoginRequest);
+router.put("/reject-device-login/:id", verifyJWT, rejectDeviceLoginRequest);
 
 
 

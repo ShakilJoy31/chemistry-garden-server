@@ -752,189 +752,86 @@ const updateStudentStatus = async (req, res, next) => {
 //! Student login (checks both Student and RegisteredStudent tables)
 const studentLogin = async (req, res, next) => {
   try {
-    const { email, phoneNo, password } = req.body;
+    const { email, phoneNo, password, deviceId } = req.body; // <-- Added deviceId
 
-    // Check if email/phone and password are provided
     if ((!email && !phoneNo) || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "Email/Phone number and password are required.",
-      });
+      return res.status(400).json({ success: false, message: "Email/Phone and password are required." });
     }
 
-    // Build where clause for search
+    if (!deviceId) {
+      return res.status(400).json({ success: false, message: "Device identification failed. Please use a modern browser." });
+    }
+
     const whereClause = {};
-    if (email) {
-      whereClause.email = email;
-    } else if (phoneNo) {
-      whereClause.phoneNo = phoneNo;
+    if (email) whereClause.email = email;
+    else if (phoneNo) whereClause.phoneNo = phoneNo;
+
+    let student = await Student.findOne({ where: whereClause });
+
+    if (!student) {
+      return res.status(404).json({ success: false, message: "No account found with these credentials." });
     }
 
-    // FIRST: Check in main Student table (approved/active students)
-    let student = await Student.findOne({
-      where: whereClause,
-    });
+    if (student.password !== password) {
+      return res.status(401).json({ success: false, message: "Invalid credentials." });
+    }
 
-    // If found in Student table, process login
-    if (student) {
-      // Check password
-      if (student.password !== password) {
-        return res.status(401).json({
-          success: false,
-          message: "Invalid credentials.",
-        });
-      }
+    if (student.status !== "active") {
+      return res.status(403).json({
+        success: false,
+        message: "Your account is inactive or suspended.",
+        accountInfo: { id: student.id, studentId: student.studentId, fullName: student.fullName, status: student.status },
+      });
+    }
 
-      // Check status
-      if (student.status !== "active") {
-        let statusMessage = "";
-        if (student.status === "inactive") {
-          statusMessage = "Your account is inactive. Please contact support.";
-        } else if (student.status === "suspended") {
-          statusMessage = "Your account has been suspended. Please contact support.";
-        } else if (student.status === "completed") {
-          statusMessage = "You have completed your course. Thank you!";
+    // ─── DEVICE TRACKING LOGIC ───
+
+    // 1. If no device is registered yet, register this one and log them in.
+    if (!student.activeDeviceId) {
+      await student.update({ activeDeviceId: deviceId });
+    }
+
+    // 2. If they are logging in from a DIFFERENT device
+    if (student.activeDeviceId && student.activeDeviceId !== deviceId) {
+      return res.status(403).json({
+        success: false,
+        isDeviceConflict: true, // Frontend will use this to show the modal
+        message: "Login attempt from a new device.",
+        data: {
+          fullName: student.fullName,
+          requestedDeviceId: deviceId
         }
-        
-        return res.status(403).json({
-          success: false,
-          message: statusMessage,
-          accountInfo: {
-            id: student.id,
-            studentId: student.studentId,
-            fullName: student.fullName,
-            status: student.status,
-          },
-        });
-      }
-
-      // Update last login time
-      await Student.update(
-        { lastLoginAt: new Date() },
-        { where: { id: student.id } }
-      );
-
-      const studentData = transformStudentResponse(student);
-
-      // Generate tokens
-      const userForToken = {
-        id: student.id,
-        email: student.email,
-        phoneNo: student.phoneNo,
-        role: student.role,
-        status: student.status,
-        fullName: student.fullName,
-        studentId: student.studentId,
-        isRegisteredStudent: false,
-      };
-      
-      const accessToken = generateAccessToken(userForToken);
-      const refreshToken = generateRefreshToken(userForToken);
-
-      return res.status(200).json({
-        success: true,
-        message: "Login successful!",
-        data: {
-          ...studentData,
-          tokens: {
-            accessToken,
-            refreshToken,
-          },
-        },
       });
     }
 
+    // 3. If they are logging in from the SAME device, allow it
+    await student.update({ lastLoginAt: new Date() });
 
-    const registeredStudent = await RegisteredStudent.findOne({
-      where: whereClause,
-    });
+    // Generate 1-year tokens
+    const userForToken = {
+      id: student.id,
+      email: student.email,
+      phoneNo: student.phoneNo,
+      role: student.role,
+      status: student.status,
+      fullName: student.fullName,
+      studentId: student.studentId,
+      deviceId: student.activeDeviceId, // Embed device ID in token
+    };
+    
+    const accessToken = generateAccessToken(userForToken);
+    const refreshToken = generateRefreshToken(userForToken);
 
-    if (!registeredStudent) {
-      return res.status(404).json({
-        success: false,
-        message: "No account found with these credentials.",
-      });
-    }
+    // Remove deviceLoginRequest on successful login
+    await student.update({ deviceLoginRequest: null });
 
-    // Check password
-    if (registeredStudent.password !== password) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid credentials.",
-      });
-    }
-
-    // Handle different statuses for registered students
-    if (registeredStudent.status === "pending") {
-      // Generate token for pending user to check status later
-      const userForToken = {
-        id: registeredStudent.id,
-        email: registeredStudent.email,
-        phoneNo: registeredStudent.phoneNo,
-        role: "student",
-        status: registeredStudent.status,
-        fullName: registeredStudent.fullName,
-        registrationId: registeredStudent.registrationId,
-        isRegisteredStudent: true,
-      };
-      
-      const accessToken = generateAccessToken(userForToken);
-      const refreshToken = generateRefreshToken(userForToken);
-
-      return res.status(403).json({
-        success: false,
-        message: "Your registration is pending approval. Please wait for admin approval.",
-        accountStatus: "pending",
-        data: {
-          id: registeredStudent.id,
-          fullName: registeredStudent.fullName,
-          email: registeredStudent.email,
-          phoneNo: registeredStudent.phoneNo,
-          registrationId: registeredStudent.registrationId,
-          status: registeredStudent.status,
-          registeredAt: registeredStudent.registeredAt,
-          photo: registeredStudent.photo,
-        },
-        tokens: {
-          accessToken,
-          refreshToken,
-        },
-      });
-    }
-
-    if (registeredStudent.status === "rejected") {
-      return res.status(403).json({
-        success: false,
-        message: `Your registration was rejected. Reason: ${registeredStudent.rejectionReason || "No reason provided"}. Please contact support.`,
-        accountStatus: "rejected",
-        accountInfo: {
-          id: registeredStudent.id,
-          registrationId: registeredStudent.registrationId,
-          fullName: registeredStudent.fullName,
-          status: registeredStudent.status,
-        },
-      });
-    }
-
-    if (registeredStudent.status === "approved") {
-      // This shouldn't happen as approved students should be moved to main table
-      // But just in case, we'll handle it
-      return res.status(403).json({
-        success: false,
-        message: "Your registration is approved but not activated. Please contact support.",
-        accountStatus: "approved",
-        accountInfo: {
-          id: registeredStudent.id,
-          registrationId: registeredStudent.registrationId,
-          fullName: registeredStudent.fullName,
-          status: registeredStudent.status,
-        },
-      });
-    }
-
-    return res.status(401).json({
-      success: false,
-      message: "Unable to login. Please contact support.",
+    return res.status(200).json({
+      success: true,
+      message: "Login successful!",
+      data: {
+        ...transformStudentResponse(student),
+        tokens: { accessToken, refreshToken },
+      },
     });
 
   } catch (error) {
@@ -945,8 +842,37 @@ const studentLogin = async (req, res, next) => {
 
 
 
+const requestNewDeviceLogin = async (req, res, next) => {
+  try {
+    const { phoneNo, email, newDeviceId, reason } = req.body;
 
+    if (!reason || reason.trim().length < 10) {
+      return res.status(400).json({ success: false, message: "Please provide a detailed reason (at least 10 characters)." });
+    }
 
+    const whereClause = phoneNo ? { phoneNo } : { email };
+    const student = await Student.findOne({ where: whereClause });
+
+    if (!student) return res.status(404).json({ success: false, message: "Student not found." });
+
+    // Save the request to the database for Admin review
+    await student.update({
+      deviceLoginRequest: {
+        requestedDeviceId: newDeviceId,
+        reason: reason,
+        requestedAt: new Date()
+      }
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Your request has been sent to the administrator for approval."
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+// Don't forget to export this function at the bottom!
 
 
 
@@ -1380,6 +1306,163 @@ const assignCourseToStudent = async (req, res, next) => {
 
 
 
+/**
+ * JSON columns can come back as an object or as a (sometimes double-encoded)
+ * string depending on the driver. Always normalise to an object or null.
+ */
+const parseJson = (value) => {
+  if (!value) return null;
+  if (typeof value === "string") {
+    try {
+      let parsed = JSON.parse(value);
+      if (typeof parsed === "string") parsed = JSON.parse(parsed);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+  return typeof value === "object" ? value : null;
+};
+
+const hasPendingRequest = (request) =>
+  Boolean(request && (request.requestedDeviceId || request.reason));
+
+//! List all students who have a pending new-device login request (admin only)
+const getDeviceLoginRequests = async (req, res, next) => {
+  try {
+    // Step 1: light query (id + request column only). Filtering in JS keeps this
+    // working on any database and avoids Sequelize's JSON-column quirks.
+    const candidates = await Student.findAll({
+      attributes: ["id", "deviceLoginRequest"],
+      raw: true,
+    });
+
+    const pendingIds = candidates
+      .filter((row) => hasPendingRequest(parseJson(row.deviceLoginRequest)))
+      .map((row) => row.id);
+
+    if (pendingIds.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: "No pending device login requests.",
+        count: 0,
+        data: [],
+      });
+    }
+
+    // Step 2: full details, only for the students that have a request
+    const students = await Student.findAll({
+      where: { id: { [Op.in]: pendingIds } },
+      attributes: [
+        "id",
+        "studentId",
+        "fullName",
+        "phoneNo",
+        "email",
+        "profileImage",
+        "class",
+        "batch",
+        "status",
+        "lastLoginAt",
+        "activeDeviceId",
+        "deviceLoginRequest",
+        "createdAt",
+      ],
+    });
+
+    const data = students
+      .map((student) => {
+        const json = student.toJSON();
+        json.deviceLoginRequest = parseJson(json.deviceLoginRequest);
+        return json;
+      })
+      // newest request first
+      .sort(
+        (a, b) =>
+          new Date(b.deviceLoginRequest?.requestedAt || 0) -
+          new Date(a.deviceLoginRequest?.requestedAt || 0)
+      );
+
+    return res.status(200).json({
+      success: true,
+      message: "Device login requests retrieved successfully!",
+      count: data.length,
+      data,
+    });
+  } catch (error) {
+    console.error("Error getting device login requests:", error);
+    next(error);
+  }
+};
+
+//! Approve: clear the registered device + the request so the student can log in again
+const approveDeviceLoginRequest = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const student = await Student.findOne({ where: { id } });
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message: "Student not found!",
+      });
+    }
+
+    if (!hasPendingRequest(parseJson(student.deviceLoginRequest))) {
+      return res.status(400).json({
+        success: false,
+        message: "This student has no pending device login request.",
+      });
+    }
+
+    await student.update({
+      activeDeviceId: null,
+      deviceLoginRequest: null,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `Device change approved for ${student.fullName}. They can log in again now.`,
+    });
+  } catch (error) {
+    console.error("Error approving device login request:", error);
+    next(error);
+  }
+};
+
+//! Reject: drop the request but keep the currently registered device
+const rejectDeviceLoginRequest = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const student = await Student.findOne({ where: { id } });
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message: "Student not found!",
+      });
+    }
+
+    if (!hasPendingRequest(parseJson(student.deviceLoginRequest))) {
+      return res.status(400).json({
+        success: false,
+        message: "This student has no pending device login request.",
+      });
+    }
+
+    await student.update({ deviceLoginRequest: null });
+
+    return res.status(200).json({
+      success: true,
+      message: `Device login request from ${student.fullName} was rejected.`,
+    });
+  } catch (error) {
+    console.error("Error rejecting device login request:", error);
+    next(error);
+  }
+};
+
+
 module.exports = {
   createStudent,
   getAllStudents,
@@ -1393,6 +1476,10 @@ module.exports = {
   updateAttendance,
   issueCertificate,
   getStudentStats,
-  assignCourseToStudent
+  assignCourseToStudent,
+  requestNewDeviceLogin,
+  rejectDeviceLoginRequest,
+  approveDeviceLoginRequest,
+  getDeviceLoginRequests
 };
 

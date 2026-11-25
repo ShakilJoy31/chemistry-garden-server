@@ -233,6 +233,17 @@ const Student = sequelize.define(
       type: dt.STRING,
       allowNull: true,
     },
+
+    activeDeviceId: {
+      type: dt.STRING,
+      allowNull: true,
+      comment: "The unique fingerprint of the currently authorized device",
+    },
+    deviceLoginRequest: {
+      type: dt.JSON,
+      allowNull: true,
+      comment: "Pending login request from a new device { newDeviceId, reason, requestedAt }",
+    },
   },
   {
     tableName: "students-collections",
