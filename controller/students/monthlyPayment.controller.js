@@ -140,6 +140,7 @@ const getMonthlyPaymentGrid = async (req, res, next) => {
         status: p?.status ?? null, // null = not set for this month yet
         note: p?.note ?? "",
         paidAt: p?.paidAt ?? null,
+        createdAt: p?.createdAt ?? null,
       };
     });
 
