@@ -30,7 +30,7 @@ const statusFor = (amount, paid) => {
 
 // ─────────────── helper: unicode-safe normalizer ───────────────
 // Bangla text can arrive in NFC (ড় = U+09DC) or NFD (ড + ় = U+09A1 U+09BC),
-// and MySQL's default collations do NOT treat them as equal. Normalize both
+// and MySQL's default collations do NOT treat them as equal. Normalize both 
 // sides in JS before comparing so the filter works regardless of how the
 // name was stored or how the browser encoded it.
 const normalize = (s) =>
